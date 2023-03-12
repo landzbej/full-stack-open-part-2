@@ -1,11 +1,37 @@
-import { useState } from 'react'
+import { useState, useEffect } from 'react';
+
+import personService from './services/persons'
+
+const Notification = ({ message }) => {
+  if (message === null) {
+    return null
+  }
+
+  return (
+    <div className='success'>
+      {message}
+    </div>
+  )
+}
+
+const ErrorNotification = ({ message }) => {
+  if (message === null) {
+    return null
+  }
+
+  return (
+    <div className='error'>
+      {message}
+    </div>
+  )
+}
 
 const Content = (props) => {
   return (
     <>
-      {props.personsToShow.map(person => 
-      <p key={person.id}>{person.name} {person.number}</p> 
-      ) 
+      {props.personsToShow.map(person => {
+        return <p className='person' key={person.id}>{person.name} {person.number} <button id={person.id} onClick={props.handleDelete}>delete</button></p> 
+      }) 
     }
     </>
   )
@@ -40,60 +66,166 @@ const Form = (props) => {
 }
 
 const App = () => {
-  const [persons, setPersons] = useState([
-    { name: 'Arto Hellas', number: '040-123456', id: 'Arto Hellas' },
-    { name: 'Ada Lovelace', number: '39-44-5323523', id: 'Ada Lovelace' },
-    { name: 'Dan Abramov', number: '12-43-234345', id: 'Dan Abramov' },
-    { name: 'Mary Poppendieck', number: '39-23-6423122', id: 'Mary Poppendieck' }
-  ]) 
+  const [persons, setPersons] = useState([]) 
   const [newName, setNewName] = useState('')
   const [newNumber, setNewNumber] = useState('')
   const [searchInput, setSearchInput] = useState('')
+  const [successMessage, setSuccessMessage] = useState(null);
+  const [errorMessage, setErrorMessage] = useState(null);
 
-  const personsToShow = searchInput
-    ? persons.filter(person => person.name.slice(0,searchInput.length).toLowerCase() === searchInput.toLowerCase())
+
+  useEffect(() => {
+    personService
+    .getAll()
+    .then(response => {
+    setPersons(response)
+    })
+  }, [])
+
+  const personsToShow = searchInput ? 
+    persons.filter(person => person.name.slice(0,searchInput.length).toLowerCase() === searchInput.toLowerCase())
     : persons;
   
   const addName = (event) => {
     event.preventDefault()
     const nameObject = {
       name: newName,
-      id: newName,
       number: newNumber
     }
-    if(persons.find(person => person.id.toLowerCase() === nameObject.id.toLowerCase())) {
-      alert(`${nameObject.name} already exists`)
+    
+    let exists = persons.find(person => person.name.toLowerCase() === nameObject.name.toLowerCase());
+    let preexisting;
+    if(exists) {
+      preexisting = persons.filter(person => person.name.toLowerCase() === nameObject.name.toLowerCase())[0];
+    }
+    if(exists && (preexisting.number === nameObject.number)) {
+      alert('name exists');  
+      setErrorMessage(
+        `The action failed`
+      );
+      setTimeout(() => {
+        setErrorMessage(null)
+      }, 5000);
     } else {
-      setPersons(persons.concat(nameObject));
-      setNewName('');
-      setNewNumber('');
-      setSearchInput('');
+      if(exists && (preexisting.number !== nameObject.number)){
+        window.confirm(`${nameObject.name} already exists. would you like to change their number to ${nameObject.number}? `)
+        let newObject = {
+          name: nameObject.name,
+          number: nameObject.number,
+          id: preexisting.id
+        }          
+        let newPersons = persons.slice();
+        let index = persons.indexOf(persons.filter(person => Number(person.id) === Number(preexisting.id))[0]);
+        newPersons[index] = newObject;
+        personService
+        .update(preexisting.id, newObject)
+        .then(response => {
+          console.log('response', response);
+          setPersons(newPersons);
+          setNewName('');
+          setNewNumber('');
+          setSearchInput('');
+        })
+        .then(response => {
+          setSuccessMessage(
+            `${newObject.name}'s number was changed`
+          )
+          setTimeout(() => {
+            setSuccessMessage(null)
+          }, 5000)
+        })
+        .catch(error => {
+          if (error.message === 'Request failed with status code 404') {
+            setErrorMessage(
+              `${newObject.name}'s information has already been removed`
+            )
+            setTimeout(() => {
+              setErrorMessage(null)
+            }, 5000)
+            if (index === persons.length) {
+              setPersons(newPersons.slice(0,index));
+            } else {
+              setPersons(newPersons.slice(0, index).concat(newPersons.slice(index + 1)));
+            }
+          } else {
+            alert('operation failed');
+          }
+        })
+      } else {
+        personService
+        .create(nameObject)
+        .then(response => {
+        setPersons(persons.concat(response));
+        setNewName('');
+        setNewNumber('');
+        setSearchInput('');
+        })
+        .then(response => {
+          setSuccessMessage(
+            `${nameObject.name} was added as a contact`
+          )
+          setTimeout(() => {
+            setSuccessMessage(null)
+          }, 5000)
+        })
+      }
     }
   }
 
+  const deleteAtId = (id) => {
+    let index = persons.indexOf(persons.filter(person => Number(person.id) === Number(id))[0]);
+    window.confirm('sure?')
+    let newPersons = persons.slice();
+    if (index === persons.length) {
+      newPersons = newPersons.slice(0,index);
+    } else {
+      newPersons =  newPersons.slice(0, index).concat(newPersons.slice(index + 1));
+    };
+    personService
+    .remove(id)
+    .then(response => {
+      setPersons(newPersons);
+      setNewName('');
+      setNewNumber('');
+      setSearchInput('');
+    })
+    .then(response => {
+      setSuccessMessage(
+      `id ${id} deleted from database`
+      )
+      setTimeout(() => {
+        setSuccessMessage(null)
+      }, 5000)
+    })
+  }
+
+  const handleDelete = (event) => {
+    event.preventDefault();
+    deleteAtId(Number(event.target.id))    
+  }
+
   const handleNameChange = (event) => {
-    console.log(event.target.value);
     setNewName(event.target.value);
   }
 
   const handleNumberChange = (event) => {
-    console.log(event.target.value);
     setNewNumber(event.target.value);
   }
 
   const handleSearchChange = (event) => {
-    console.log(event.target.value);
     setSearchInput(event.target.value);
   }
 
   return (
     <div>
       <h2>Phonebook</h2>
+      <Notification message={successMessage} />
+      <ErrorNotification message={errorMessage} />
       <Search searchInput={searchInput} handleSearchChange={handleSearchChange}/>
       <h3>add a new</h3>
       <Form addName={addName} newName={newName} handleNameChange={handleNameChange} newNumber={newNumber} handleNumberChange={handleNumberChange} />
       <h2>Numbers</h2>
-      <Content personsToShow={personsToShow} />
+      <Content personsToShow={personsToShow} handleDelete={handleDelete} />
     </div>
   )
 }
